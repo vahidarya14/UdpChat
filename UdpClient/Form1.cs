@@ -1,22 +1,25 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-
 namespace UdpChat
 {
     public partial class Form1 : Form
     {
-        string postDistance = $"{Environment.NewLine}---------------------{Environment.NewLine}";
+        string seperator = $"{Environment.NewLine}---------------------{Environment.NewLine}";
         UdpBus _udpBus = new UdpBus();
+
+        List<(string from, string to, string msg,DateTime dateTime)> Msgs = new List<(string from, string to, string msg, DateTime dateTime)>();
 
         public Form1()
         {
             InitializeComponent();
-            //CheckForIllegalCrossThreadCalls = false;
-            panel1.Visible = false;
+
+            _udpBus.OnClientAddedd += (a) => RefreshOnlineClients();
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -26,13 +29,18 @@ namespace UdpChat
 
             if (loginDialogResult != DialogResult.OK) { Close(); return; }
 
+            Properties.Settings.Default["lastIP"] = loginForm.comboBox1.SelectedItem.ToString();
+            Properties.Settings.Default.Save();
+
             _udpBus.Connect(loginForm.textBox3.Text, loginForm.comboBox1.SelectedItem.ToString(), 8000);
+
 
             _udpBus.InfornOthers();
 
             RefreshOnlineClients();
 
             Text = loginForm.textBox3.Text + ":" + _udpBus.Port.ToString();
+
 
             try
             {
@@ -43,11 +51,16 @@ namespace UdpChat
 
                     var receiveBytes = a.Result.Buffer;
                     string returnData = Encoding.UTF8.GetString(receiveBytes);
+                    var fromIp = a.Result.RemoteEndPoint.Address.ToString();
+                    var fromPort = a.Result.RemoteEndPoint.Port;
+                    var toIp = _udpBus.Host;
+                    var toPort = _udpBus.Port;
 
                     if (returnData.Contains("[just_joined]"))
                     {
+                        var fullName = returnData.Split(';')[0].Trim();
                         var parts = returnData.Split(';')[0].Trim().Split(':');
-                        UdpBus.Clients.Add(new UdpBus.MyUdpClient(parts[0], parts[1], int.Parse(parts[2])));
+                        UdpBus.Clients.Add(new UdpBus.MyUdpClient(fullName, parts[0], int.Parse(parts[1])));
                         RefreshOnlineClients();
                     }
                     else if (returnData.EndsWith("[just_left]"))
@@ -59,22 +72,54 @@ namespace UdpChat
                     else if (returnData.EndsWith("[what_is_your_name]"))
                     {
                         var parts = returnData.Split(';')[0].Trim();
-                        _udpBus.SendAsync($"{a.Result.RemoteEndPoint.Address}:{a.Result.RemoteEndPoint.Port}", $"{_udpBus.FullName};[my_name_is]");
+                        _udpBus.SendAsync($"{fromIp}:{fromPort}", $"{_udpBus.FullName};[my_name_is]");
                     }
                     else if (returnData.EndsWith("[my_name_is]"))
                     {
                         var parts = returnData.Split(';')[0].Trim();
-                        var c = UdpBus.Clients.First(x => x.Host == a.Result.RemoteEndPoint.Address.ToString() && x.Port == a.Result.RemoteEndPoint.Port);
+                        var c = UdpBus.Clients.First(x => x.Host == fromIp && x.Port == fromPort);
                         c.FullName = parts;
                         RefreshOnlineClients();
                     }
                     else
                     {
-                        var c = UdpBus.Clients.First(x => x.Host == a.Result.RemoteEndPoint.Address.ToString() && x.Port == a.Result.RemoteEndPoint.Port);
-                  
-                        Invoke(new MethodInvoker(() => {
-                            textBox2.AppendText($"{c.FullName }: {returnData + postDistance} ");
+                        Invoke(new MethodInvoker(() =>
+                        {
+                            if (listBox1.SelectedItem == null || listBox1.SelectedItem.ToString() != $"{fromIp}")
+                            {
+                                if (!string.IsNullOrEmpty(returnData))
+                                {
+                                    notifyIcon1.Icon = Icon;
+                                    notifyIcon1.ShowBalloonTip(800, fromIp, returnData, ToolTipIcon.None);
+                                    //notifyIcon1.Visible = false;
+                                }
+
+                            }
+
                         }));
+
+
+
+
+                        var c = UdpBus.Clients.FirstOrDefault(x => x.Host == fromIp && x.Port == fromPort);
+                        if (c == null)
+                        {
+                            c = new UdpBus.MyUdpClient($"{fromIp}:{fromPort}", fromIp, fromPort);
+                            UdpBus.Clients.Add(c);
+                        }
+                        Msgs.Add((c.FullName, "Me", returnData,DateTime.Now));
+                        RefreshMsgs();
+
+                        Invoke(new MethodInvoker(() =>
+                        {
+                            panel2.Controls.Add(new Label
+                            {
+                                BackColor = Color.Blue,
+                                Text = returnData,
+                                Margin = new Padding(0, 0, 0, 15)
+                            });
+                        }));
+                       
                     }
                 });
 
@@ -83,8 +128,16 @@ namespace UdpChat
             {
                 Console.WriteLine(e.ToString());
             }
+
+
+
         }
 
+
+        void ThreadSafeUi(Action action)
+        {
+            Invoke(new MethodInvoker(() =>action()));
+        }
 
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
@@ -97,24 +150,35 @@ namespace UdpChat
             if (listBox1.SelectedItem != null)
             {
                 var p = listBox1.SelectedItem.ToString();
+                Msgs.Add(("Me", p, textBox1.Text, DateTime.Now));
                 _udpBus.SendAsync(p, textBox1.Text).ContinueWith(a =>
                  {
                      Invoke(new MethodInvoker(() =>
                      {
-                         textBox2.AppendText($"Me to {p}:" + textBox1.Text + postDistance);
                          textBox1.Text = "";
                      }));
 
+                     Invoke(new MethodInvoker(() =>
+                     {
+                         panel2.Controls.Add(new Label
+                         {
+                             BackColor = Color.Pink,
+                             Text = textBox1.Text,
+                             Margin = new Padding(0, 0, 0, 15)
+                         });
+                     }));
+
+                     RefreshMsgs();
                  });
             }
             else
-                foreach (var reciverPort in UdpBus.Clients.Where(a => a.Port != _udpBus.Port))
+                foreach (var reciverPort in UdpBus.Clients.Where(x=>x.FullName!= "(All)"))
                 {
                     _udpBus.SendAsync(textBox1.Text, reciverPort.IpEndPoint).ContinueWith(a =>
                     {
                         Invoke(new MethodInvoker(() =>
                         {
-                            textBox2.AppendText($"Me to {reciverPort}:" + textBox1.Text + postDistance);
+                            textBox2.AppendText($"Me to {reciverPort}:" + textBox1.Text + seperator);
                             textBox1.Text = "";
                         }));
                     });
@@ -125,15 +189,12 @@ namespace UdpChat
 
         void RefreshOnlineClients()
         {
-            Invoke(new MethodInvoker(()=>
+            Invoke(new MethodInvoker(() =>
             {
                 listBox1.Items.Clear();
-                foreach (var port in UdpBus.Clients)
+                for (int i = 0; i < UdpBus.Clients.Count; i++)
                 {
-                    if (port.Port != _udpBus.Port)
-                        listBox1.Items.Add(port);
-                    //else
-                    //    listBox1.Items.Add("Me:" );
+                    listBox1.Items.Add(UdpBus.Clients[i]);
                 }
 
             }));
@@ -141,16 +202,26 @@ namespace UdpChat
 
         }
 
+        void RefreshMsgs()
+        {
+            Invoke(new MethodInvoker(() =>
+            {
+                if (listBox1.SelectedItem == null) return;
+
+                label1.Text = listBox1.SelectedItem.ToString();
+
+                textBox2.Text = "";
+                var ourMsg = string.Join(seperator, 
+                    Msgs.Where(x => x.from == label1.Text || x.to == label1.Text).Select(x => $"{x.from}          {x.dateTime}\r\n{x.msg}").ToList());
+                textBox2.Text = ourMsg;
+            }));
+        }
+
         private void listBox1_DoubleClick(object sender, EventArgs e)
         {
             if (listBox1.SelectedItem == null) return;
 
-            Invoke(new MethodInvoker(() =>
-            {
-                label1.Text = listBox1.SelectedItem.ToString();
-                panel1.Visible = true;
-                listBox1.Visible = false;
-            }));
+            RefreshMsgs();
 
         }
 
@@ -158,9 +229,9 @@ namespace UdpChat
         {
             Invoke(new MethodInvoker(() =>
             {
-                panel1.Visible = false;
+                //panel1.Visible = false;
+                //listBox1.Visible = true;
                 textBox2.Text = "";
-                listBox1.Visible = true;
             }));
 
         }

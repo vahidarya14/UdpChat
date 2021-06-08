@@ -12,6 +12,17 @@ namespace UdpChat
 
             foreach (var item in new UdpBus().ListOfMyIps())
                 comboBox1.Items.Add(item);
+
+            var lastIp = Properties.Settings.Default["lastIP"].ToString();
+            if (lastIp != null)
+            {
+                for (int i = 0; i < comboBox1.Items.Count; i++)
+                {
+                    if (string.Compare(comboBox1.Items[i].ToString(), lastIp)==0)
+                        comboBox1.SelectedIndex = i;
+                }
+
+            }
         }
 
         private void button1_Click(object sender, EventArgs e)

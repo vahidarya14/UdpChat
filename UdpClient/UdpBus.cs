@@ -20,12 +20,12 @@ namespace UdpChat
         public int Port { get; private set; } = 8000;
         public string FullName { get; private set; }
 
-        public static readonly List<MyUdpClient> Clients = new List<MyUdpClient>();
+        public static  List<MyUdpClient> Clients = new List<MyUdpClient>();
 
         public IPAddress[] ListOfMyIps()
         {
             IPHostEntry ipHost = Dns.GetHostEntry(Dns.GetHostName());
-            return ipHost.AddressList;
+            return ipHost.AddressList.Where(x=>x.AddressFamily==AddressFamily.InterNetwork).ToArray();
         }
 
         public async void Connect(string fullName, string ip, int port)
@@ -114,6 +114,8 @@ namespace UdpChat
             foreach (var item in Clients.Where(a => a.Port != Port))
                 _udpClient.SendAsync(sendBytes, sendBytes.Length, item.IpEndPoint).ContinueWith(a => { });
             _udpClient.Dispose();
+            _udpClient = null;
+            Clients = new List<MyUdpClient>();
         }
 
         public void InfornOthers()
@@ -124,7 +126,7 @@ namespace UdpChat
 
         public void StartListeningAsync(Action<Task<UdpReceiveResult>> onMsgReceived)
         {
-            while (true)
+            while (_udpClient.Client.Connected)
             {
                 // Blocks until a message returns on this socket from a remote host.
                 _udpClient.ReceiveAsync().ContinueWith(onMsgReceived);

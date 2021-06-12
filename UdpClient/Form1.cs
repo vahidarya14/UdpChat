@@ -32,8 +32,11 @@ namespace UdpChat
             Properties.Settings.Default["lastIP"] = loginForm.comboBox1.SelectedItem.ToString();
             Properties.Settings.Default.Save();
 
+            Show();
+            helloToolStripMenuItem.Text = $"hello {loginForm.textBox3.Text}";
             _udpBus.Connect(loginForm.textBox3.Text, loginForm.comboBox1.SelectedItem.ToString(), 8000);
 
+            //var aaa = _udpBus.SendAsync("msg", new System.Net.IPEndPoint(System.Net.IPAddress.Parse("192.168.1.150"), 5005)).GetAwaiter().GetResult();
 
             _udpBus.InfornOthers();
 
@@ -126,7 +129,7 @@ namespace UdpChat
             }
             catch (Exception ex)
             {
-                Console.WriteLine(e.ToString());
+                Console.WriteLine(ex.ToString());
             }
 
 
@@ -236,5 +239,11 @@ namespace UdpChat
 
         }
 
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            _udpBus.Disconnect();
+            Hide();
+            Form1_Load(this, default);
+        }
     }
 }
